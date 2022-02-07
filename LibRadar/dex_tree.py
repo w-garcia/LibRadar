@@ -408,4 +408,5 @@ class Tree(object):
         str = rputil.Util.dict2str(kvd)
         zstr = zlib.compress(str,1)
         self.db_rep.hset(name="apk_feature", key=hex_sha256, value=zstr)
-        self.db_rep.zadd("apk_weight", ret_length, hex_sha256 )
+        d = {hex_sha256: ret_length}
+        self.db_rep.zadd("apk_weight", d)

@@ -20,6 +20,7 @@
 #   main function for instant detection.
 
 
+import shutil
 import sys
 from _settings import *
 import dex_tree
@@ -27,7 +28,39 @@ import dex_parser
 import hashlib
 import zipfile
 import json
+import fnmatch
+import tempfile
 from collections import Counter
+
+
+def is_dex(filepath):
+    if os.path.isdir(filepath):
+        return False
+
+    # read first 3 bytes to check for dex header
+    with open(filepath, 'rb') as f:
+        header_maybe = f.readline(3)
+        if header_maybe == b'dex':
+            return True
+        else:
+            return False
+
+
+def is_zip(filepath):
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with zipfile.ZipFile(filepath, 'r') as zf:
+                zf.extractall(temp_dir)
+
+            return True
+
+    except zipfile.BadZipfile as bzf_e:
+        # not a zip
+        return False
+    except Exception as re:
+        # something weird hapened 
+        return False
+
 
 class LibRadar(object):
     """
@@ -77,19 +110,54 @@ class LibRadar(object):
 
     def unzip(self):
         # If it is a valid file
-        if not os.path.isfile(self.apk_path):
+        if not os.path.exists(self.apk_path):
             logger.error("%s is not a valid file." % self.apk_path)
             raise AssertionError
         # If it is a apk file
-        if len(self.apk_path) <= 4 or self.apk_path[-4:] != ".apk":
-            logger.error("%s is not a apk file.")
-            raise AssertionError
+        # if len(self.apk_path) <= 4 or self.apk_path[-4:] != ".apk":
+        #     logger.error("%s is not a apk file.")
+        #     raise AssertionError
         # Get SHA256
-        self.hex_sha256 = self.get_sha256()
+        # self.hex_sha256 = self.get_sha256()
+        self.hex_sha256 = self.apk_path.split('/')[-1]
         # Unzip
-        zf = zipfile.ZipFile(self.apk_path, mode='r')
-        # Transfer the unzipped dex file name to self.dex_name
-        self.dex_name = zf.extract("classes.dex", SCRIPT_PATH + "/Data/Decompiled/%s" % self.hex_sha256)
+        if is_zip(self.apk_path):
+            zf = zipfile.ZipFile(self.apk_path, mode='r')
+            # Transfer the unzipped dex file name to self.dex_name
+            self.dex_name = zf.extract("classes.dex", SCRIPT_PATH + "/Data/Decompiled/%s" % self.hex_sha256)
+        elif os.path.isdir(self.apk_path):
+            # directory
+            out_dir = SCRIPT_PATH + "/Data/Decompiled/%s" % self.hex_sha256
+            filenames = os.listdir(self.apk_path)
+            if len(filenames) == 1:
+                print("Found good DEX file in a folder.")
+                dex_file = os.path.join(self.apk_path, filenames[0])
+                self.dex_name = SCRIPT_PATH + "/Data/Decompiled/%s/" % self.hex_sha256 + 'classes.dex'
+                if not os.path.exists(out_dir):
+                    os.makedirs(out_dir)
+
+                shutil.copy2(dex_file, self.dex_name)
+            else:
+                # find dex
+                dex_files = fnmatch.filter(filenames, '*.dex')
+                if 'classes.dex' in dex_files:
+                    print("Found good DEX file in a folder.")
+                    dex_file = os.path.join(self.apk_path, 'classes.dex')
+                    self.dex_name = SCRIPT_PATH + "/Data/Decompiled/%s/" % self.hex_sha256 + 'classes.dex'
+                    if not os.path.exists(out_dir):
+                        os.makedirs(out_dir)
+                    shutil.copy2(dex_file, self.dex_name)
+                else:
+                    # TODO: check each file for dex
+                    raise NotImplementedError("Folder did not have classes.dex")
+
+            # if is_dex(self.apk_path):
+            #     os.makedirs(SCRIPT_PATH + "/Data/Decompiled/%s" % self.hex_sha256)
+            #     self.dex_name = SCRIPT_PATH + "/Data/Decompiled/%s/classes.dex" % self.hex_sha256
+            #     shutil.copy2(self.apk_path, self.dex_name)
+            # else:
+            #     raise IOError("The file is neither APK nor DEX! %s" % self.apk_path)
+        
         return self.dex_name
 
     def get_sha256(self):
@@ -225,7 +293,7 @@ if __name__ == '__main__':
     if len(sys.argv) != 2:
         print("LibRadar only takes 1 arguments.")
         print("Usage:")
-        print("    $ python libradar.py example.apk")
+        print("    $ python libradar.py [APK folder]")
         exit(1)
     apk_path = sys.argv[1]
     lrd = LibRadar(apk_path)
